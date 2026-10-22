@@ -119,8 +119,10 @@ def validate_dataset(records: List[Dict[str, str]], min_expected: int = 500) -> 
         stats["errors"].append(f"Abnormally thin run: got {len(records)} records, expected at least {min_expected}")
 
     seen = set()
-    required_non_empty = ["zipcode", "store_name", "store_location", "category", "product_title", "regular_price", "sale_price", "crawl_date"]
+    # Core identity fields that must never be empty for catalog continuity
+    required_identity_fields = ["zipcode", "store_name", "store_location", "category", "sub_category", "product_title", "url", "crawl_date"]
     empty_field_occurrences = 0
+    unavailable_assortment_count = 0
 
     for idx, r in enumerate(records):
         # 1. Field order check
@@ -128,24 +130,37 @@ def validate_dataset(records: List[Dict[str, str]], min_expected: int = 500) -> 
             stats["errors"].append(f"Record {idx} violates strict 22-field ordering")
             break
 
-        # 2. Check duplicates
+        # 2. Invariant: gupc and unit_price must be strictly empty strings
+        if r.get("gupc") != "":
+            stats["errors"].append(f"Record {idx} ('{r.get('product_title')}') has non-empty gupc: '{r.get('gupc')}'")
+            break
+        if r.get("unit_price") != "":
+            stats["errors"].append(f"Record {idx} ('{r.get('product_title')}') has non-empty unit_price: '{r.get('unit_price')}'")
+            break
+
+        # 3. Check duplicates
         key = f"{r.get('upc') or r.get('url')}_{r.get('zipcode')}"
         if key in seen:
             stats["duplicate_count"] += 1
         else:
             seen.add(key)
 
-        # 3. Check completeness
-        for req in required_non_empty:
+        # 4. Track unavailable store-assortment products (retained per specification even when price/upc missing)
+        if not r.get("regular_price") or not r.get("sale_price"):
+            unavailable_assortment_count += 1
+
+        # 5. Check completeness of required identity fields
+        for req in required_identity_fields:
             if not r.get(req):
                 empty_field_occurrences += 1
 
         cat = r.get("category", "Unknown")
         stats["categories_found"][cat] = stats["categories_found"].get(cat, 0) + 1
 
+    stats["unavailable_assortment_count"] = unavailable_assortment_count
     if records:
         stats["duplicate_rate"] = f"{(stats['duplicate_count'] / len(records)) * 100:.2f}%"
-        completeness = max(0.0, 100.0 - (empty_field_occurrences / (len(records) * len(required_non_empty)) * 100))
+        completeness = max(0.0, 100.0 - (empty_field_occurrences / (len(records) * len(required_identity_fields)) * 100))
         stats["field_completeness_rate"] = f"{completeness:.1f}%"
 
     is_valid = len(stats["errors"]) == 0 and stats["duplicate_count"] == 0

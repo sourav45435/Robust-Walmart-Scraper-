@@ -28,15 +28,16 @@ test('check duplicate count returns 0 on unique set', () => {
 test('top categories sum and rank ordering', () => {
   assert.equal(TOP_CATEGORIES.length, 10);
   assert.equal(TOP_CATEGORIES[0].category, 'Beverages');
-  assert.equal(TOP_CATEGORIES[0].records, 182);
+  assert.equal(TOP_CATEGORIES[0].records, 94);
   assert.equal(TOP_CATEGORIES[9].category, 'Baby Care');
-  assert.equal(TOP_CATEGORIES[9].records, 42);
+  assert.equal(TOP_CATEGORIES[9].records, 12);
 });
 
 test('operating cost calculation default matches baseline range', () => {
   const cost = calculateOperatingCost(1, 2);
-  assert.equal(cost.compute, '$60 – $100');
-  assert.equal(cost.proxy, '$120 – $200');
-  assert.equal(cost.storage, '$10 – $20');
-  assert.equal(cost.total, '$190 – $320 / month');
+  assert.equal(cost.breakdown.compute, '$60 - $100');
+  assert.equal(cost.breakdown.proxies, '$120 - $200');
+  assert.equal(cost.breakdown.storage, '$10 - $20');
+  assert.equal(cost.minMonthly, 190);
+  assert.equal(cost.maxMonthly, 320);
 });

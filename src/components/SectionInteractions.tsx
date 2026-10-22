@@ -21,6 +21,7 @@ import {
   FileText
 } from 'lucide-react';
 import { ScrapedRecord, FULL_DATASET, checkDuplicateCount } from '../utils/scraperData';
+import { getStoreByNumber } from '../utils/usStoresData';
 
 // 1. Field Inspector Modal
 export function FieldInspectorModal({
@@ -292,7 +293,10 @@ export function FulfillmentContextModal({
     '3782': { name: "Walmart Supercenter #3782", zip: "32801", address: "5991 S Goldenrod Rd, Orlando, FL 32822" }
   };
 
-  const cur = STORE_DETAILS[selectedStore] || STORE_DETAILS['4012'];
+  const usStore = getStoreByNumber(selectedStore);
+  const cur = usStore
+    ? { name: usStore.name, zip: usStore.zipcode, address: usStore.address }
+    : (STORE_DETAILS[selectedStore] || STORE_DETAILS['4012']);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -502,7 +506,13 @@ export function FilterTesterModal({ onClose }: { onClose: () => void }) {
 }
 
 // 5. Pipeline & Failed Runs Protection Simulator Modal
-export function PipelineSimulatorModal({ onClose }: { onClose: () => void }) {
+export function PipelineSimulatorModal({
+  selectedStore = '4012',
+  onClose
+}: {
+  selectedStore?: string;
+  onClose: () => void;
+}) {
   const [simStep, setSimStep] = useState<'idle' | 'running_healthy' | 'running_failure' | 'done_healthy' | 'done_failure'>('idle');
 
   const runHealthy = () => {
@@ -533,7 +543,7 @@ export function PipelineSimulatorModal({ onClose }: { onClose: () => void }) {
         <div className="p-4 space-y-4 text-xs text-slate-700">
           <p className="text-[11px] text-slate-600">
             Contest mandate: <strong className="text-slate-800">"Never overwrite the last successful dataset with an empty or incomplete run."</strong>
-            Test how the scraper prevents partial or failed runs from corrupting historical data.
+            Test how the scraper prevents partial or failed runs from corrupting historical data for Store #{selectedStore}.
           </p>
 
           <div className="flex gap-2">
@@ -563,7 +573,7 @@ export function PipelineSimulatorModal({ onClose }: { onClose: () => void }) {
                 <span className="w-5 h-5 rounded-full bg-sky-600 text-white flex items-center justify-center font-bold text-[10px]">1</span>
                 <div>
                   <div className="font-semibold text-slate-800">Staging Buffer Write</div>
-                  <div className="text-[10px] text-slate-500 font-mono">staging/walmart_4012_temp.json</div>
+                  <div className="text-[10px] text-slate-500 font-mono">staging/walmart_{selectedStore}_temp.json</div>
                 </div>
               </div>
 
@@ -602,7 +612,7 @@ export function PipelineSimulatorModal({ onClose }: { onClose: () => void }) {
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Quality Gates Passed (100%)
                 </div>
                 <div className="text-[10.5px]">
-                  524 records verified. Zero nulls. Staging atomically committed to <code className="font-mono text-emerald-700">output/walmart_4012_2025-05-17.json</code>.
+                  524 records verified. Zero nulls. Staging atomically committed to <code className="font-mono text-emerald-700">output/walmart_{selectedStore}_2025-05-17.json</code>.
                 </div>
               </div>
             )}

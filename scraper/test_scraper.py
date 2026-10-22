@@ -12,6 +12,12 @@ Comprehensive unit tests for Walmart scraper logic:
 """
 
 import unittest
+import os
+import sys
+
+# Ensure scraper directory is in Python path
+sys.path.insert(0, os.path.dirname(__file__))
+
 from deals_parser import parse_deals
 from validation import (
     REQUIRED_FIELD_ORDER,
@@ -105,10 +111,12 @@ class TestWalmartScraperRules(unittest.TestCase):
                 "store_name": "Walmart Supercenter",
                 "store_location": "1234 Main St, Dallas, TX 75201",
                 "category": "Beverages",
+                "sub_category": "Water",
                 "product_title": f"Product {i}",
                 "regular_price": "$5.00",
                 "sale_price": "$4.50",
                 "upc": f"078742{i:06d}",
+                "url": f"https://www.walmart.com/ip/prod-{i}",
                 "ppm": "$0.05/oz"
             }, "2025-05-17")
             for i in range(505)
@@ -117,6 +125,78 @@ class TestWalmartScraperRules(unittest.TestCase):
         self.assertTrue(is_valid)
         self.assertEqual(stats["duplicate_count"], 0)
         self.assertEqual(stats["field_completeness_rate"], "100.0%")
+
+    def test_unavailable_store_assortment_retention(self):
+        """Rule: Retain unavailable store-assortment products even when price or UPC is missing."""
+        out_of_stock_item = sanitize_and_order_record({
+            "zipcode": "75001",
+            "store_name": "Walmart Supercenter",
+            "store_location": "1234 Main St, Dallas, TX 75201",
+            "category": "Fresh Produce",
+            "sub_category": "Fresh Fruits",
+            "product_title": "Marketside Fresh Organic Strawberries, 1 lb (Temporarily Out of Stock)",
+            "regular_price": "",
+            "sale_price": "",
+            "upc": "",
+            "url": "https://www.walmart.com/ip/marketside-strawberries/000000040112"
+        }, "2025-05-17")
+        self.assertEqual(out_of_stock_item["regular_price"], "")
+        self.assertEqual(out_of_stock_item["sale_price"], "")
+        self.assertEqual(out_of_stock_item["upc"], "")
+        self.assertEqual(out_of_stock_item["gupc"], "")
+        self.assertEqual(out_of_stock_item["unit_price"], "")
+        self.assertEqual(out_of_stock_item["crawl_date"], "2025-05-17")
+
+        # Must pass dataset validation without being discarded
+        batch = [
+            sanitize_and_order_record({
+                "zipcode": "75001",
+                "store_name": "Walmart Supercenter",
+                "store_location": "1234 Main St, Dallas, TX 75201",
+                "category": "Beverages",
+                "product_title": f"Product {i}",
+                "regular_price": "$5.00",
+                "sale_price": "$4.50",
+                "upc": f"078742{i:06d}",
+                "url": f"https://www.walmart.com/ip/prod-{i}"
+            }, "2025-05-17") for i in range(500)
+        ]
+        batch.append(out_of_stock_item)
+        is_valid, stats = validate_dataset(batch, min_expected=500)
+        self.assertTrue(is_valid)
+        self.assertEqual(stats["unavailable_assortment_count"], 1)
+
+    def test_checkpoint_and_publication_gate(self):
+        """Rule: Incomplete runs (<500 records) are blocked by publication gate."""
+        from checkpoint_manager import CheckpointManager
+        import shutil
+
+        test_staging = ".staging_test_audit"
+        test_output = "output_test_audit"
+        mgr = CheckpointManager("4012", "2025-05-17", staging_dir=test_staging, output_dir=test_output)
+
+        # Incomplete batch: only 120 records
+        thin_records = [
+            {"zipcode": "75001", "product_title": f"Item {i}", "upc": f"100{i}"} for i in range(120)
+        ]
+        mgr.append_staging_records(thin_records)
+
+        # Evaluate gate -> should be BLOCKED
+        approved, reason, stats = mgr.evaluate_publication_gate(min_threshold=500)
+        self.assertFalse(approved)
+        self.assertIn("BLOCKED", reason)
+        self.assertEqual(stats["total_records"], 120)
+
+        # Attempt promote -> should return False and keep output clean
+        promoted = mgr.promote_staging_to_production(min_threshold=500)
+        self.assertFalse(promoted)
+        self.assertFalse(os.path.exists(mgr.production_target_file))
+
+        # Cleanup
+        if os.path.exists(test_staging):
+            shutil.rmtree(test_staging)
+        if os.path.exists(test_output):
+            shutil.rmtree(test_output)
 
 if __name__ == "__main__":
     unittest.main()
